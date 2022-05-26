@@ -1,18 +1,26 @@
 mqtt:
-    host: 
-    port: 
-    user: 
-    password: 
-#    discovery: true #defaults to false, uncomment to enable home-assistant discovery
+    host: mqtt.home
+    port: 1883
+    #    user: 
+    #    password: 
+    discovery: true #defaults to false, uncomment to enable home-assistant discovery
 #    discovery_prefix: homeassistant #change to match with setting of home-assistant
 doors:
     -
-        id: 
-#        name: #defaults to an unsanitized version of the id paramater
-        relay: 
-        state: 
+        id: 'garage-door-left'
+        name: 'Garage Door Left'
+        relay: 23
+        #        state: 
 #        state_mode: normally_closed #defaults to normally open, uncomment to switch
-#        invert_relay: true #defaults to false, uncomment to turn relay pin on by default
-        state_topic: "home-assistant/cover"
-        command_topic: "home-assistant/cover/set"
-
+        invert_relay: true #defaults to false, uncomment to turn relay pin on by default
+#        state_topic: "home-assistant/cover"
+#        command_topic: "home-assistant/button/left/push"
+    -
+        id: 'garage-door-right'
+        name: 'Garage Door Right'
+        relay: 24
+        #        state: 
+#        state_mode: normally_closed #defaults to normally open, uncomment to switch
+        invert_relay: true #defaults to false, uncomment to turn relay pin on by default
+#        state_topic: "home-assistant/cover"
+#command_topic: "home-assistant/button/right/push"

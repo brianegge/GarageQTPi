@@ -1,26 +1,31 @@
-import os
 import binascii
-import yaml
-import paho.mqtt.client as mqtt
+import json
+import os
 import re
+
+import paho.mqtt.client as mqtt
+import sdnotify
+import yaml
 
 from lib.garage import GarageDoor
 
-print "Welcome to GarageBerryPi!"
-
-# Update the mqtt state topic
-def update_state(value, topic):
-    print "State change triggered: %s -> %s" % (topic, value)
-
-    client.publish(topic, value, retain=True)
+print("Welcome to GarageBerryPi!")
+lwt = "MQTTGarageDoor/status"
 
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, rc):
-    print "Connected with result code: %s" % mqtt.connack_string(rc)
-    for config in CONFIG['doors']:
-        command_topic = config['command_topic']
-        print "Listening for commands on %s" % command_topic
+    print("Connected with result code: %s" % mqtt.connack_string(rc))
+    client.publish(lwt, "online")
+    for config in CONFIG["doors"]:
+        command_topic = config["command_topic"]
+        print("Listening for commands on %s" % command_topic)
         client.subscribe(command_topic)
+
+
+def on_disconnect(client, userdata, rc):
+    print("mqtt disconnected reason  " + str(rc))
+    client.loop_stop()
+
 
 # Execute the specified command for a door
 def execute_command(door, command):
@@ -28,83 +33,95 @@ def execute_command(door, command):
         doorName = door.name
     except:
         doorName = door.id
-    print "Executing command %s for door %s" % (command, doorName)
-    if command == "OPEN" and door.state == 'closed':
-        door.open()
-    elif command == "CLOSE" and door.state == 'open':
-        door.close()
-    elif command == "STOP":
-        door.stop()
+    print("Executing command %s for door %s" % (command, doorName))
+    if command == "PRESS":
+        door.press()
     else:
-        print "Invalid command: %s" % command
+        print("Invalid command: %s" % command)
 
-with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.yaml'), 'r') as ymlfile:
+
+with open(
+    os.path.join(os.path.abspath(os.path.dirname(__file__)), "config.yaml"), "r"
+) as ymlfile:
     CONFIG = yaml.load(ymlfile)
 
 ### SETUP MQTT ###
-user = CONFIG['mqtt']['user']
-password = CONFIG['mqtt']['password']
-host = CONFIG['mqtt']['host']
-port = int(CONFIG['mqtt']['port'])
-discovery = bool(CONFIG['mqtt'].get('discovery'))
-if 'discovery_prefix' not in CONFIG['mqtt']:
-    discovery_prefix = 'homeassistant'
+host = CONFIG["mqtt"]["host"]
+port = int(CONFIG["mqtt"]["port"])
+discovery = bool(CONFIG["mqtt"].get("discovery"))
+if "discovery_prefix" not in CONFIG["mqtt"]:
+    discovery_prefix = "homeassistant"
 else:
-    discovery_prefix = CONFIG['mqtt']['discovery_prefix']
+    discovery_prefix = CONFIG["mqtt"]["discovery_prefix"]
 
-client = mqtt.Client(client_id="MQTTGarageDoor_" + binascii.b2a_hex(os.urandom(6)), clean_session=True, userdata=None, protocol=4)
+client = mqtt.Client(
+    client_id="MQTTGarageDoor", clean_session=True, userdata=None, protocol=4
+)
+client.will_set(lwt, "offline", retain=True)
 
 client.on_connect = on_connect
+client.on_disconnect = on_disconnect
 
-client.username_pw_set(user, password=password)
+if "user" in CONFIG["mqtt"]:
+    user = CONFIG["mqtt"]["user"]
+    password = CONFIG["mqtt"]["password"]
+    client.username_pw_set(user, password=password)
 client.connect(host, port, 60)
+
+
+class GracefulKiller:
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, *args):
+        client.stop()
+
+
 ### SETUP END ###
 
 ### MAIN LOOP ###
 if __name__ == "__main__":
+    sd = sdnotify.SystemdNotifier()
+    sd.notify("STATUS=Loading")
+
     # Create door objects and create callback functions
-    for doorCfg in CONFIG['doors']:
+    for doorCfg in CONFIG["doors"]:
 
         # If no name it set, then set to id
-        if not doorCfg['name']:
-            doorCfg['name'] = doorCfg['id']
+        if not doorCfg["name"]:
+            doorCfg["name"] = doorCfg["id"]
 
         # Sanitize id value for mqtt
-        doorCfg['id'] = re.sub('\W+', '', re.sub('\s', ' ', doorCfg['id']))
+        doorCfg["id"] = re.sub("\W+", "", re.sub("\s", " ", doorCfg["id"]))
 
         if discovery is True:
-            base_topic = discovery_prefix + "/cover/" + doorCfg['id']
+            base_topic = discovery_prefix + "/button/" + doorCfg["id"]
             config_topic = base_topic + "/config"
-            doorCfg['command_topic'] = base_topic + "/set"
-            doorCfg['state_topic'] = base_topic + "/state"
-        
-        command_topic = doorCfg['command_topic']
-        state_topic = doorCfg['state_topic']
+            doorCfg["command_topic"] = base_topic + "/push"
 
+        command_topic = doorCfg["command_topic"]
 
         door = GarageDoor(doorCfg)
 
         # Callback per door that passes a reference to the door
         def on_message(client, userdata, msg, door=door):
-            execute_command(door, str(msg.payload))
-
-        # Callback per door that passes the doors state topic
-        def on_state_change(value, topic=state_topic):
-            update_state(value, topic)
+            execute_command(door, msg.payload.decode("utf-8"))
 
         client.message_callback_add(command_topic, on_message)
 
-        # You can add additional listeners here and they will all be executed when the door state changes
-        door.onStateChange.addHandler(on_state_change)
-
-        # Publish initial door state
-        client.publish(state_topic, door.state, retain=True)
-
         # If discovery is enabled publish configuration
         if discovery is True:
-            client.publish(config_topic,'{"name": "' + doorCfg['name'] + '", "command_topic": "' + command_topic + '", "state_topic": "' + state_topic + '"}', retain=True)
+            j = {
+                "name": doorCfg["name"],
+                "command_topic": command_topic,
+                "uniq_id": doorCfg["id"],
+                "availability_topic": lwt,
+            }
+            client.publish(config_topic, json.dumps(j), retain=True)
 
+    sd.notify("READY=1")
+    sd.notify("STATUS=Running")
     # Main loop
     client.loop_forever()
-
-
+    print("Exiting")
