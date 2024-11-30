@@ -1,8 +1,8 @@
 mqtt:
     host: mqtt.home
     port: 1883
-    #    user: 
-    #    password: 
+    user: mqtt
+    password: mqtt
     discovery: true #defaults to false, uncomment to enable home-assistant discovery
 #    discovery_prefix: homeassistant #change to match with setting of home-assistant
 doors:

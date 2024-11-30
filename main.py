@@ -15,7 +15,7 @@ lwt = "MQTTGarageDoor/status"
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, rc):
     print("Connected with result code: %s" % mqtt.connack_string(rc))
-    client.publish(lwt, "online")
+    client.publish(lwt, "online", retain=True)
     for config in CONFIG["doors"]:
         command_topic = config["command_topic"]
         print("Listening for commands on %s" % command_topic)
