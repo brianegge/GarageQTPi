@@ -2,6 +2,7 @@ import binascii
 import json
 import os
 import re
+from signal import signal
 
 import paho.mqtt.client as mqtt
 import sdnotify
@@ -122,6 +123,7 @@ if __name__ == "__main__":
 
     sd.notify("READY=1")
     sd.notify("STATUS=Running")
+    killer = GracefulKiller()
     # Main loop
     client.loop_forever()
     print("Exiting")
