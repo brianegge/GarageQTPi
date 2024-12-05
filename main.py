@@ -2,7 +2,7 @@ import binascii
 import json
 import os
 import re
-from signal import signal
+import signal
 
 import paho.mqtt.client as mqtt
 import sdnotify
