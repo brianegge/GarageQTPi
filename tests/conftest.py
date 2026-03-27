@@ -29,3 +29,19 @@ sys.modules.pop("paho", None)
 sys.modules["paho"] = MagicMock()
 sys.modules["paho.mqtt"] = MagicMock()
 sys.modules["paho.mqtt.client"] = _mock_mqtt
+
+# Mock urllib.request.urlopen so _get_latest_version() doesn't hit the network
+import urllib.request
+
+_original_urlopen = urllib.request.urlopen
+
+
+def _mock_urlopen(*args, **kwargs):
+    response = MagicMock()
+    response.read.return_value = b'{"tag_name": "v0.0.1"}'
+    response.__enter__ = lambda s: s
+    response.__exit__ = MagicMock(return_value=False)
+    return response
+
+
+urllib.request.urlopen = _mock_urlopen

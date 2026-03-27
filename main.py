@@ -4,6 +4,7 @@ import os
 import re
 import signal
 import subprocess
+import urllib.request
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
@@ -28,10 +29,26 @@ def _get_version():
         return "unknown"
 
 
+GITHUB_REPO = "brianegge/GarageQTPi"
+
+
+def _get_latest_version():
+    """Fetch the latest release tag from GitHub."""
+    url = "https://api.github.com/repos/%s/releases/latest" % GITHUB_REPO
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("tag_name", _version)
+    except Exception:
+        return None
+
+
 print("Welcome to GarageBerryPi!")
 lwt = "MQTTGarageDoor/status"
 _discovery_messages = []
 _version = _get_version()
+_latest_version = _get_latest_version()
 _start_time = datetime.now(timezone.utc).isoformat()
 
 
@@ -192,14 +209,6 @@ if __name__ == "__main__":
                 "entity_category": "diagnostic",
                 "icon": "mdi:clock-start",
             },
-            {
-                "name": "Version",
-                "uniq_id": node_id + "_version",
-                "state_topic": "MQTTGarageDoor/version",
-                "device": device,
-                "entity_category": "diagnostic",
-                "icon": "mdi:tag",
-            },
         ]
         for sensor in sensors:
             topic = discovery_prefix + "/sensor/" + sensor["uniq_id"] + "/config"
@@ -208,7 +217,25 @@ if __name__ == "__main__":
             client.publish(topic, payload, retain=True)
 
         client.publish("MQTTGarageDoor/started", _start_time, retain=True)
-        client.publish("MQTTGarageDoor/version", _version, retain=True)
+
+        # Update entity so HA shows when a newer version is available
+        update_config = {
+            "name": "Update",
+            "uniq_id": node_id + "_update",
+            "state_topic": "MQTTGarageDoor/update",
+            "device": device,
+            "entity_category": "diagnostic",
+            "release_url": "https://github.com/%s/releases" % GITHUB_REPO,
+        }
+        update_topic = discovery_prefix + "/update/" + update_config["uniq_id"] + "/config"
+        update_payload = json.dumps(update_config)
+        _discovery_messages.append((update_topic, update_payload))
+        client.publish(update_topic, update_payload, retain=True)
+
+        update_state = {"installed_version": _version}
+        if _latest_version:
+            update_state["latest_version"] = _latest_version
+        client.publish("MQTTGarageDoor/update", json.dumps(update_state), retain=True)
 
     sd.notify("READY=1")
     sd.notify("STATUS=Running")
