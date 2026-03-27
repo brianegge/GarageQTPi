@@ -3,6 +3,8 @@ import json
 import os
 import re
 import signal
+import subprocess
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 import sdnotify
@@ -10,17 +12,53 @@ import yaml
 
 from lib.garage import GarageDoor
 
+
+def _get_version():
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "describe", "--tags", "--always"],
+                cwd=os.path.dirname(__file__),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        return "unknown"
+
+
 print("Welcome to GarageBerryPi!")
 lwt = "MQTTGarageDoor/status"
+_discovery_messages = []
+_version = _get_version()
+_start_time = datetime.now(timezone.utc).isoformat()
+
+
+def publish_discovery():
+    """Re-publish all stored discovery messages and online status."""
+    for topic, payload in _discovery_messages:
+        client.publish(topic, payload, retain=True)
+    client.publish(lwt, "online", retain=True)
+
 
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, rc):
     print("Connected with result code: %s" % mqtt.connack_string(rc))
     client.publish(lwt, "online", retain=True)
+    client.subscribe("homeassistant/status")
     for config in CONFIG["doors"]:
         command_topic = config["command_topic"]
         print("Listening for commands on %s" % command_topic)
         client.subscribe(command_topic)
+
+
+def on_ha_status(client, userdata, msg):
+    """Re-publish discovery when Home Assistant comes online."""
+    status = msg.payload.decode("utf-8")
+    if status == "online":
+        print("Home Assistant online, re-publishing discovery")
+        publish_discovery()
 
 
 def on_disconnect(client, userdata, rc):
@@ -62,6 +100,7 @@ client.will_set(lwt, "offline", retain=True)
 
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
+client.message_callback_add("homeassistant/status", on_ha_status)
 
 if "user" in CONFIG["mqtt"]:
     user = CONFIG["mqtt"]["user"]
@@ -85,6 +124,14 @@ class GracefulKiller:
 if __name__ == "__main__":
     sd = sdnotify.SystemdNotifier()
     sd.notify("STATUS=Loading")
+
+    device = {
+        "identifiers": ["garageqtpi"],
+        "name": "GarageQTPi",
+        "manufacturer": "GarageQTPi",
+        "model": "GarageQTPi",
+        "sw_version": _version,
+    }
 
     # Create door objects and create callback functions
     for doorCfg in CONFIG["doors"]:
@@ -118,8 +165,50 @@ if __name__ == "__main__":
                 "command_topic": command_topic,
                 "uniq_id": doorCfg["id"],
                 "availability_topic": lwt,
+                "device": device,
             }
-            client.publish(config_topic, json.dumps(j), retain=True)
+            payload = json.dumps(j)
+            _discovery_messages.append((config_topic, payload))
+            client.publish(config_topic, payload, retain=True)
+
+    # Publish device-level sensors
+    if discovery is True:
+        node_id = "garageqtpi"
+        sensors = [
+            {
+                "name": "Status",
+                "uniq_id": node_id + "_status",
+                "state_topic": lwt,
+                "device": device,
+                "entity_category": "diagnostic",
+                "icon": "mdi:heart-pulse",
+            },
+            {
+                "name": "Started",
+                "uniq_id": node_id + "_started",
+                "state_topic": "MQTTGarageDoor/started",
+                "device": device,
+                "device_class": "timestamp",
+                "entity_category": "diagnostic",
+                "icon": "mdi:clock-start",
+            },
+            {
+                "name": "Version",
+                "uniq_id": node_id + "_version",
+                "state_topic": "MQTTGarageDoor/version",
+                "device": device,
+                "entity_category": "diagnostic",
+                "icon": "mdi:tag",
+            },
+        ]
+        for sensor in sensors:
+            topic = discovery_prefix + "/sensor/" + sensor["uniq_id"] + "/config"
+            payload = json.dumps(sensor)
+            _discovery_messages.append((topic, payload))
+            client.publish(topic, payload, retain=True)
+
+        client.publish("MQTTGarageDoor/started", _start_time, retain=True)
+        client.publish("MQTTGarageDoor/version", _version, retain=True)
 
     sd.notify("READY=1")
     sd.notify("STATUS=Running")
