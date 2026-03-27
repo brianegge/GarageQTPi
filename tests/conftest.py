@@ -18,15 +18,3 @@ sys.modules["RPi.GPIO"] = _gpio
 
 # Mock sdnotify
 sys.modules["sdnotify"] = MagicMock()
-
-# Patch yaml.load to accept Loader kwarg (newer PyYAML requires it)
-import yaml
-
-_original_load = yaml.load
-
-
-def _patched_load(stream, Loader=yaml.SafeLoader):
-    return _original_load(stream, Loader=Loader)
-
-
-yaml.load = _patched_load

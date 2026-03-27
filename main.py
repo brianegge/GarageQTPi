@@ -82,7 +82,7 @@ def execute_command(door, command):
 with open(
     os.path.join(os.path.abspath(os.path.dirname(__file__)), "config.yaml"), "r"
 ) as ymlfile:
-    CONFIG = yaml.load(ymlfile)
+    CONFIG = yaml.safe_load(ymlfile)
 
 ### SETUP MQTT ###
 host = CONFIG["mqtt"]["host"]
@@ -141,7 +141,7 @@ if __name__ == "__main__":
             doorCfg["name"] = doorCfg["id"]
 
         # Sanitize id value for mqtt
-        doorCfg["id"] = re.sub("\W+", "", re.sub("\s", " ", doorCfg["id"]))
+        doorCfg["id"] = re.sub(r"\W+", "", re.sub(r"\s", " ", doorCfg["id"]))
 
         if discovery is True:
             base_topic = discovery_prefix + "/button/" + doorCfg["id"]
