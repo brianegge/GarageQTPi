@@ -1,2 +1,4 @@
 paho_mqtt>=1.2,<2
 PyYAML>=3.12
+sdnotify
+RPi.GPIO

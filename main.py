@@ -60,7 +60,7 @@ def publish_discovery(mqtt_client):
 
 
 # The callback for when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, rc):
+def on_connect(client, userdata, flags, rc):
     print("Connected with result code: %s" % mqtt.connack_string(rc))
     client.publish(lwt, "online", retain=True)
     client.subscribe("homeassistant/status")
