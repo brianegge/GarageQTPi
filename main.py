@@ -39,7 +39,7 @@ def _get_latest_version():
         req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            return data.get("tag_name", _version)
+            return data.get("tag_name") or None
     except Exception:
         return None
 
