@@ -8,6 +8,8 @@ project code is imported.
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 # Mock RPi.GPIO before anything imports it
 _gpio = MagicMock()
 _gpio.BCM = 11
@@ -29,3 +31,15 @@ sys.modules.pop("paho", None)
 sys.modules["paho"] = MagicMock()
 sys.modules["paho.mqtt"] = MagicMock()
 sys.modules["paho.mqtt.client"] = _mock_mqtt
+
+
+@pytest.fixture(autouse=True)
+def _mock_urlopen(monkeypatch):
+    """Mock urllib.request.urlopen so tests don't hit the network."""
+    response = MagicMock()
+    response.read.return_value = b'{"tag_name": "v0.0.1"}'
+    response.__enter__ = lambda s: s
+    response.__exit__ = MagicMock(return_value=False)
+
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **kw: response)

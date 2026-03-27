@@ -98,3 +98,16 @@ def test_get_version_returns_string():
     version = main._get_version()
     assert isinstance(version, str)
     assert len(version) > 0
+
+
+def test_get_latest_version_returns_tag():
+    """With mocked urlopen (from conftest), should return the tag_name."""
+    version = main._get_latest_version()
+    assert version == "v0.0.1"
+
+
+def test_get_latest_version_returns_none_on_error():
+    """If the API call fails, should return None."""
+    with patch("main.urllib.request.urlopen", side_effect=Exception("no network")):
+        version = main._get_latest_version()
+        assert version is None
