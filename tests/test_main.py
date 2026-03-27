@@ -25,7 +25,7 @@ def test_on_ha_status_online_calls_publish_discovery():
 
     with patch.object(main, "publish_discovery") as mock_pd:
         main.on_ha_status(client, None, msg)
-        mock_pd.assert_called_once()
+        mock_pd.assert_called_once_with(client)
 
 
 def test_on_ha_status_offline_does_nothing():
@@ -54,31 +54,44 @@ def test_execute_command_invalid():
 
 def test_publish_discovery_republishes_stored_messages():
     client_mock = MagicMock()
-    original_client = main.client
     original_messages = main._discovery_messages[:]
-    main.client = client_mock
     main._discovery_messages = [
         ("topic/a/config", '{"name":"a"}'),
         ("topic/b/config", '{"name":"b"}'),
     ]
 
     try:
-        main.publish_discovery()
+        main.publish_discovery(client_mock)
         assert client_mock.publish.call_args_list == [
             call("topic/a/config", '{"name":"a"}', retain=True),
             call("topic/b/config", '{"name":"b"}', retain=True),
             call(main.lwt, "online", retain=True),
         ]
     finally:
-        main.client = original_client
         main._discovery_messages = original_messages
 
 
 def test_discovery_messages_contain_device_block():
     """Verify stored discovery messages include a device key."""
-    for topic, payload in main._discovery_messages:
-        data = json.loads(payload)
-        assert "device" in data, f"Missing device block in {topic}"
+    original_messages = main._discovery_messages[:]
+    main._discovery_messages = [
+        (
+            "homeassistant/button/door1/config",
+            json.dumps({
+                "name": "Door 1",
+                "command_topic": "test/push",
+                "uniq_id": "door1",
+                "device": {"identifiers": ["garageqtpi"], "name": "GarageQTPi"},
+            }),
+        ),
+    ]
+
+    try:
+        for topic, payload in main._discovery_messages:
+            data = json.loads(payload)
+            assert "device" in data, f"Missing device block in {topic}"
+    finally:
+        main._discovery_messages = original_messages
 
 
 def test_get_version_returns_string():

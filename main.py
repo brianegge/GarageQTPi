@@ -24,7 +24,7 @@ def _get_version():
             .decode()
             .strip()
         )
-    except Exception:
+    except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
 
@@ -35,11 +35,11 @@ _version = _get_version()
 _start_time = datetime.now(timezone.utc).isoformat()
 
 
-def publish_discovery():
+def publish_discovery(mqtt_client):
     """Re-publish all stored discovery messages and online status."""
     for topic, payload in _discovery_messages:
-        client.publish(topic, payload, retain=True)
-    client.publish(lwt, "online", retain=True)
+        mqtt_client.publish(topic, payload, retain=True)
+    mqtt_client.publish(lwt, "online", retain=True)
 
 
 # The callback for when the client receives a CONNACK response from the server.
@@ -58,7 +58,7 @@ def on_ha_status(client, userdata, msg):
     status = msg.payload.decode("utf-8")
     if status == "online":
         print("Home Assistant online, re-publishing discovery")
-        publish_discovery()
+        publish_discovery(client)
 
 
 def on_disconnect(client, userdata, rc):

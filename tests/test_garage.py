@@ -1,4 +1,3 @@
-import sys
 from unittest.mock import MagicMock, call
 
 import RPi.GPIO as GPIO
@@ -6,7 +5,7 @@ import RPi.GPIO as GPIO
 from lib.garage import GarageDoor, SHORT_WAIT
 
 
-def setup_function():
+def setup_function(function):
     GPIO.reset_mock()
 
 
