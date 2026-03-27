@@ -18,3 +18,12 @@ sys.modules["RPi.GPIO"] = _gpio
 
 # Mock sdnotify
 sys.modules["sdnotify"] = MagicMock()
+
+# Mock paho.mqtt.client so importing main doesn't open a real connection.
+# Preserve connack_string so on_connect can format it.
+import paho.mqtt.client as _real_mqtt
+
+_mock_mqtt = MagicMock()
+_mock_mqtt.connack_string = _real_mqtt.connack_string
+_mock_mqtt.Client.return_value = MagicMock()
+sys.modules["paho.mqtt.client"] = _mock_mqtt
