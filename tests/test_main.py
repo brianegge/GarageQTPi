@@ -10,7 +10,7 @@ def test_on_connect_publishes_online_and_subscribes():
     main.CONFIG = {"doors": [{"command_topic": "test/door/push"}]}
 
     try:
-        main.on_connect(client, None, 0)
+        main.on_connect(client, None, {}, 0)
         client.publish.assert_called_with(main.lwt, "online", retain=True)
         client.subscribe.assert_any_call("homeassistant/status")
         client.subscribe.assert_any_call("test/door/push")
