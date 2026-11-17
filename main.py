@@ -191,7 +191,8 @@ class GracefulKiller:
         signal.signal(signal.SIGTERM, self.exit_gracefully)
 
     def exit_gracefully(self, *args):
-        client.stop()
+        # paho has no stop(); disconnect() is what makes loop_forever() return.
+        client.disconnect()
 
 
 ### SETUP END ###

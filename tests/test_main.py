@@ -184,3 +184,9 @@ def test_install_update_only_fast_forwards():
         call("fetch", "--quiet", "--tags", "origin"),
         call("merge", "--ff-only", "--quiet", "v0.0.4"),
     ]
+
+
+def test_sigterm_disconnects_so_loop_forever_returns():
+    with patch("main.signal.signal"), patch.object(main, "client") as client:
+        main.GracefulKiller().exit_gracefully()
+    client.disconnect.assert_called_once()
