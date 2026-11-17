@@ -111,3 +111,76 @@ def test_get_latest_version_returns_none_on_error():
     with patch("main.urllib.request.urlopen", side_effect=Exception("no network")):
         version = main._get_latest_version()
         assert version is None
+
+
+def _install_msg(payload=b"install"):
+    msg = MagicMock()
+    msg.payload = payload
+    return msg
+
+
+def test_on_connect_subscribes_to_update_command():
+    client = MagicMock()
+    original = main.CONFIG
+    main.CONFIG = {"doors": []}
+    try:
+        main.on_connect(client, None, {}, 0)
+        client.subscribe.assert_any_call(main.UPDATE_COMMAND_TOPIC)
+    finally:
+        main.CONFIG = original
+
+
+def test_update_command_installs_and_exits():
+    client = MagicMock()
+    with patch.object(main, "_version", "v0.0.2"), patch.object(
+        main, "_latest_version", "v0.0.4"
+    ), patch("main.install_update") as install, patch(
+        "main.threading.Thread"
+    ) as thread:
+        thread.side_effect = lambda target, args, daemon: MagicMock(
+            start=lambda: target(*args)
+        )
+        main.on_update_command(client, None, _install_msg())
+
+    install.assert_called_once_with("v0.0.4")
+    states = [
+        json.loads(c.args[1])
+        for c in client.publish.call_args_list
+        if c.args[0] == main.UPDATE_STATE_TOPIC
+    ]
+    assert states[0]["in_progress"] is True
+    client.publish.assert_any_call(main.lwt, "offline", retain=True)
+    client.disconnect.assert_called_once()
+
+
+def test_update_failure_clears_progress_and_keeps_running():
+    client = MagicMock()
+    err = main.subprocess.CalledProcessError(128, "git", output=b"not possible to fast-forward")
+    with patch.object(main, "_version", "v0.0.2"), patch.object(
+        main, "_latest_version", "v0.0.4"
+    ), patch("main.install_update", side_effect=err):
+        main._run_update(client)
+
+    last = json.loads(client.publish.call_args_list[-1].args[1])
+    assert last["in_progress"] is False
+    client.disconnect.assert_not_called()
+
+
+def test_update_command_ignored_when_current_or_unknown_payload():
+    client = MagicMock()
+    with patch.object(main, "_version", "v0.0.4"), patch.object(
+        main, "_latest_version", "v0.0.4"
+    ), patch("main.install_update") as install:
+        main.on_update_command(client, None, _install_msg())
+        main.on_update_command(client, None, _install_msg(b"other"))
+    install.assert_not_called()
+    client.publish.assert_not_called()
+
+
+def test_install_update_only_fast_forwards():
+    with patch("main._git") as git:
+        main.install_update("v0.0.4")
+    assert git.call_args_list == [
+        call("fetch", "--quiet", "--tags", "origin"),
+        call("merge", "--ff-only", "--quiet", "v0.0.4"),
+    ]

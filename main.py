@@ -4,6 +4,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import urllib.request
 from datetime import datetime, timezone
 
@@ -44,6 +45,62 @@ def _get_latest_version():
         return None
 
 
+UPDATE_STATE_TOPIC = "MQTTGarageDoor/update"
+UPDATE_COMMAND_TOPIC = "MQTTGarageDoor/update/install"
+UPDATE_PAYLOAD_INSTALL = "install"
+
+
+def _git(*args):
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stderr=subprocess.STDOUT,
+    ).decode()
+
+
+def install_update(tag):
+    """Fast-forward the checkout to a release tag.
+
+    Only a fast-forward: local commits or a diverged branch make this fail
+    rather than discard anything. Dependencies are not reinstalled.
+    """
+    _git("fetch", "--quiet", "--tags", "origin")
+    _git("merge", "--ff-only", "--quiet", tag)
+
+
+def _publish_update_state(mqtt_client, in_progress=False):
+    state = {"installed_version": _version, "in_progress": in_progress}
+    if _latest_version:
+        state["latest_version"] = _latest_version
+    mqtt_client.publish(UPDATE_STATE_TOPIC, json.dumps(state), retain=True)
+
+
+def _run_update(mqtt_client):
+    try:
+        install_update(_latest_version)
+    except (OSError, subprocess.CalledProcessError) as err:
+        output = getattr(err, "output", b"") or b""
+        print("Update to %s failed: %s %s" % (_latest_version, err, output.decode().strip()))
+        _publish_update_state(mqtt_client)
+        return
+    print("Updated to %s, exiting so systemd restarts us" % _latest_version)
+    mqtt_client.publish(lwt, "offline", retain=True)
+    mqtt_client.disconnect()
+
+
+def on_update_command(client, userdata, msg):
+    """Install the latest release when Home Assistant's Install is pressed."""
+    if msg.payload.decode("utf-8") != UPDATE_PAYLOAD_INSTALL:
+        return
+    if not _latest_version or _latest_version == _version:
+        print("Install requested, but no newer release is known")
+        return
+    print("Installing %s (running %s)" % (_latest_version, _version))
+    _publish_update_state(client, in_progress=True)
+    # git can take a while on a Pi; keep it off the MQTT network thread.
+    threading.Thread(target=_run_update, args=(client,), daemon=True).start()
+
+
 print("Welcome to GarageBerryPi!")
 lwt = "MQTTGarageDoor/status"
 _discovery_messages = []
@@ -64,6 +121,7 @@ def on_connect(client, userdata, flags, rc):
     print("Connected with result code: %s" % mqtt.connack_string(rc))
     client.publish(lwt, "online", retain=True)
     client.subscribe("homeassistant/status")
+    client.subscribe(UPDATE_COMMAND_TOPIC)
     for config in CONFIG["doors"]:
         command_topic = config["command_topic"]
         print("Listening for commands on %s" % command_topic)
@@ -118,6 +176,7 @@ client.will_set(lwt, "offline", retain=True)
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
 client.message_callback_add("homeassistant/status", on_ha_status)
+client.message_callback_add(UPDATE_COMMAND_TOPIC, on_update_command)
 
 if "user" in CONFIG["mqtt"]:
     user = CONFIG["mqtt"]["user"]
@@ -222,7 +281,9 @@ if __name__ == "__main__":
         update_config = {
             "name": "Update",
             "uniq_id": node_id + "_update",
-            "state_topic": "MQTTGarageDoor/update",
+            "state_topic": UPDATE_STATE_TOPIC,
+            "command_topic": UPDATE_COMMAND_TOPIC,
+            "payload_install": UPDATE_PAYLOAD_INSTALL,
             "device": device,
             "entity_category": "diagnostic",
             "release_url": "https://github.com/%s/releases" % GITHUB_REPO,
@@ -232,10 +293,7 @@ if __name__ == "__main__":
         _discovery_messages.append((update_topic, update_payload))
         client.publish(update_topic, update_payload, retain=True)
 
-        update_state = {"installed_version": _version}
-        if _latest_version:
-            update_state["latest_version"] = _latest_version
-        client.publish("MQTTGarageDoor/update", json.dumps(update_state), retain=True)
+        _publish_update_state(client)
 
     sd.notify("READY=1")
     sd.notify("STATUS=Running")
