@@ -97,6 +97,18 @@ Screenshot:
 
 ![Home assistant ui][1]
 
+### Updates
+
+With MQTT discovery on, the device gets an **Update** entity. At startup the Pi
+reads the latest GitHub release and reports it next to the version it runs
+(`git describe`). Pressing **Install** in Home Assistant fast-forwards the
+checkout to that release and exits, so systemd restarts the service on the new
+code. It never discards local changes: if the checkout has diverged, the install
+fails and the old version keeps running. Python dependencies are not reinstalled.
+
+The latest release is only checked at startup, so a new release shows up after
+the next restart.
+
 ## API Reference
 
 The server works with the Home Assisant MQTT Cover component out of the box but if you want to write your own MQTT client you need to adhere to the following API:
